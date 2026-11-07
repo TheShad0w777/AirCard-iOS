@@ -842,6 +842,11 @@ struct ContentView: View {
             PairingTab()
                 .tabItem { Label("Pairing", systemImage: "antenna.radiowaves.left.and.right") }
                 .tag(AppTab.pairing)
+            FileManagerTab()
+                .tabItem {
+                    Label("Files", systemImage: "folder.fill")
+                }
+                .tag(AppTab.fileManager)
 
             WalletCardsTab()
                 .tabItem { Label("Wallet Cards", systemImage: "creditcard.fill") }
