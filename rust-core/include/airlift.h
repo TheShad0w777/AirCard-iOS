@@ -74,6 +74,19 @@ void al_pairing_result_free(ALPairResult *r);
 // ---------------------------------------------------------------------------
 // Exploit
 // ---------------------------------------------------------------------------
+// AFC File Manager
+// ---------------------------------------------------------------------------
+
+// Lists entries visible to the paired AFC service.
+// out_json must be freed with al_string_free().
+// out_error must be freed with al_string_free().
+int32_t al_afc_list_directory(
+    const char *pairing_path,
+    const char *remote_path,
+    char **out_json,
+    char **out_error
+);
+// ---------------------------------------------------------------------------
 
 // Run the AirTraffic sandbox escape. BLOCKS — run off the main thread.
 // `pairing_path` — path produced by al_pairing_run_host.
