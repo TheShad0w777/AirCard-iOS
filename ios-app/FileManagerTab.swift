@@ -6,6 +6,9 @@ import UniformTypeIdentifiers
 struct FileManagerTab: View {
     @State private var showingImporter = false
     @State private var importError: String?
+    @State private var importResultTitle = ""
+    @State private var importResultMessage = ""
+    @State private var showingImportResult = false
 
     private let fileManager = FileManager.default
 
