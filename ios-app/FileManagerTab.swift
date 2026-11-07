@@ -1,27 +1,36 @@
+
 import SwiftUI
 import UniformTypeIdentifiers
-
-// MARK: - File Manager Tab
+import Foundation
 
 struct FileManagerTab: View {
     @State private var showingImporter = false
-    @State private var importError: String?
+    @State private var showingImportResult = false
+
     @State private var importResultTitle = ""
     @State private var importResultMessage = ""
-    @State private var showingImportResult = false
 
     private let fileManager = FileManager.default
 
     private var documentsURL: URL {
-        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        fileManager.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
     }
 
     private var libraryURL: URL {
-        fileManager.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        fileManager.urls(
+            for: .libraryDirectory,
+            in: .userDomainMask
+        )[0]
     }
 
     private var cachesURL: URL {
-        fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        fileManager.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        )[0]
     }
 
     private var temporaryURL: URL {
@@ -58,17 +67,26 @@ struct FileManagerTab: View {
                 } header: {
                     Text("App Storage")
                 } footer: {
-                    Text("These are folders belonging to AirCard-iOS. Files belonging to other apps are not accessible here.")
+                    Text(
+                        "These folders belong to AirCard-iOS. " +
+                        "Other apps' private files are not accessible."
+                    )
                 }
 
                 Section {
                     Button {
                         showingImporter = true
                     } label: {
-                        Label("Import Files", systemImage: "square.and.arrow.down")
+                        Label(
+                            "Import Files",
+                            systemImage: "square.and.arrow.down"
+                        )
                     }
                 } footer: {
-                    Text("Imported files are copied into AirCard's Documents/Imported folder.")
+                    Text(
+                        "Selected files will be copied into " +
+                        "Documents/Imported."
+                    )
                 }
             }
             .navigationTitle("File Manager")
@@ -80,54 +98,139 @@ struct FileManagerTab: View {
                 importFiles(result)
             }
             .alert(
-                "Import Error",
-                isPresented: Binding(
-                    get: { importError != nil },
-                    set: { if !$0 { importError = nil } }
-                )
+                importResultTitle,
+                isPresented: $showingImportResult
             ) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(importError ?? "Unknown error")
+                Text(importResultMessage)
             }
         }
     }
+
+    // MARK: - Import Files
 
     private func importFiles(_ result: Result<[URL], Error>) {
         do {
             let selectedURLs = try result.get()
 
+            guard !selectedURLs.isEmpty else {
+                return
+            }
+
             let importFolder = documentsURL
-                .appendingPathComponent("Imported", isDirectory: true)
+                .appendingPathComponent(
+                    "Imported",
+                    isDirectory: true
+                )
 
             try fileManager.createDirectory(
                 at: importFolder,
-                withIntermediateDirectories: true
+                withIntermediateDirectories: true,
+                attributes: nil
             )
 
+            var importedCount = 0
+            var failedFiles: [String] = []
+
             for sourceURL in selectedURLs {
-                let hasAccess = sourceURL.startAccessingSecurityScopedResource()
-                defer {
-                    if hasAccess {
-                        sourceURL.stopAccessingSecurityScopedResource()
-                    }
+                do {
+                    try copyImportedFile(
+                        from: sourceURL,
+                        to: importFolder
+                    )
+
+                    importedCount += 1
+                } catch {
+                    failedFiles.append(
+                        "\(sourceURL.lastPathComponent): " +
+                        error.localizedDescription
+                    )
                 }
+            }
 
-                var destinationURL = importFolder
-                    .appendingPathComponent(sourceURL.lastPathComponent)
+            if failedFiles.isEmpty {
+                importResultTitle = "Import Complete"
+                importResultMessage =
+                    "\(importedCount) file(s) imported successfully."
+            } else {
+                importResultTitle = "Import Finished"
+                importResultMessage =
+                    "Imported: \(importedCount)\n" +
+                    "Failed: \(failedFiles.count)\n\n" +
+                    failedFiles.joined(separator: "\n")
+            }
 
-                if fileManager.fileExists(atPath: destinationURL.path) {
-                    let newName = UUID().uuidString + "_" + sourceURL.lastPathComponent
-                    destinationURL = importFolder.appendingPathComponent(newName)
-                }
+            showingImportResult = true
 
+        } catch {
+            importResultTitle = "Import Error"
+            importResultMessage = error.localizedDescription
+            showingImportResult = true
+        }
+    }
+
+    // MARK: - Copy Selected File
+
+    private func copyImportedFile(
+        from sourceURL: URL,
+        to destinationFolder: URL
+    ) throws {
+
+        let hasAccess =
+            sourceURL.startAccessingSecurityScopedResource()
+
+        defer {
+            if hasAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        var destinationURL = destinationFolder
+            .appendingPathComponent(
+                sourceURL.lastPathComponent
+            )
+
+        // Avoid overwriting existing files.
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            let newName =
+                UUID().uuidString + "_" +
+                sourceURL.lastPathComponent
+
+            destinationURL = destinationFolder
+                .appendingPathComponent(newName)
+        }
+
+        let coordinator = NSFileCoordinator(
+            filePresenter: nil
+        )
+
+        var coordinationError: NSError?
+        var copyError: Error?
+
+        coordinator.coordinate(
+            readingItemAt: sourceURL,
+            options: [],
+            error: &coordinationError
+        ) { coordinatedURL in
+
+            do {
                 try fileManager.copyItem(
-                    at: sourceURL,
+                    at: coordinatedURL,
                     to: destinationURL
                 )
+            } catch {
+                copyError = error
             }
-        } catch {
-            importError = error.localizedDescription
+        }
+
+        if let error = coordinationError {
+            throw error
+        }
+
+        if let error = copyError {
+            throw error
         }
     }
 }
@@ -148,7 +251,9 @@ struct FileDirectoryView: View {
                 ContentUnavailableView(
                     "Folder is Empty",
                     systemImage: "folder",
-                    description: Text("There are no visible files in this folder.")
+                    description: Text(
+                        "There are no visible files in this folder."
+                    )
                 )
             } else {
                 ForEach(entries, id: \.self) { url in
@@ -172,8 +277,10 @@ struct FileDirectoryView: View {
                             Spacer()
 
                             ShareLink(item: url) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .foregroundStyle(.blue)
+                                Image(
+                                    systemName: "square.and.arrow.up"
+                                )
+                                .foregroundStyle(.blue)
                             }
                         }
                     }
@@ -198,7 +305,11 @@ struct FileDirectoryView: View {
             "Folder Error",
             isPresented: Binding(
                 get: { loadError != nil },
-                set: { if !$0 { loadError = nil } }
+                set: {
+                    if !$0 {
+                        loadError = nil
+                    }
+                }
             )
         ) {
             Button("OK", role: .cancel) {}
@@ -207,34 +318,53 @@ struct FileDirectoryView: View {
         }
     }
 
+    // MARK: - Load Directory
+
     private func loadDirectory() {
         do {
             entries = try fileManager.contentsOfDirectory(
                 at: directory,
-                includingPropertiesForKeys: [.isDirectoryKey],
+                includingPropertiesForKeys: [
+                    .isDirectoryKey,
+                    .isSymbolicLinkKey
+                ],
                 options: [.skipsHiddenFiles]
-            ).sorted {
-                let firstIsDirectory = isDirectory($0)
-                let secondIsDirectory = isDirectory($1)
+            )
+            .filter { url in
+                let values = try? url.resourceValues(
+                    forKeys: [.isSymbolicLinkKey]
+                )
+
+                return values?.isSymbolicLink != true
+            }
+            .sorted { first, second in
+                let firstIsDirectory = isDirectory(first)
+                let secondIsDirectory = isDirectory(second)
 
                 if firstIsDirectory != secondIsDirectory {
                     return firstIsDirectory
                 }
 
-                return $0.lastPathComponent.localizedCaseInsensitiveCompare(
-                    $1.lastPathComponent
-                ) == .orderedAscending
+                return first.lastPathComponent
+                    .localizedCaseInsensitiveCompare(
+                        second.lastPathComponent
+                    ) == .orderedAscending
             }
+
         } catch {
             entries = []
             loadError = error.localizedDescription
         }
     }
 
+    // MARK: - Check Directory
+
     private func isDirectory(_ url: URL) -> Bool {
         let values = try? url.resourceValues(
-            forKeys: [.isDirectoryKey]
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
         )
-        return values?.isDirectory ?? false
+
+        return values?.isDirectory == true &&
+               values?.isSymbolicLink != true
     }
 }
